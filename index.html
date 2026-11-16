@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>I LOVE YOU</title>
+<style>
+  html,body{margin:0;height:100%;background:#020617;overflow:hidden;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  W = canvas.clientWidth; H = canvas.clientHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+/* ================= CŒUR 3D ================= */
+const N = 3500;
+const bx = new Float32Array(N), by = new Float32Array(N), bz = new Float32Array(N);
+const ph = new Float32Array(N), rnd = new Float32Array(N);
+
+for (let i = 0; i < N; i++) {
+  const t = Math.random() * Math.PI * 2;
+  const hx = 16 * Math.sin(t) ** 3;
+  const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+  const s = Math.random() < 0.75 ? 0.9 + Math.random() * 0.1 : Math.sqrt(Math.random());
+  const zt = 9 * Math.sqrt(Math.max(0, 1 - s * s)) + 2.5;
+  bx[i] = hx * s;
+  by[i] = -hy * s;
+  bz[i] = (Math.random() * 2 - 1) * zt;
+  ph[i] = Math.random() * Math.PI * 2;
+  rnd[i] = Math.random();
+}
+
+const LAYERS = [
+  { color: "#1d4ed8", alpha: 0.45, size: 0.9 },  // loin
+  { color: "#2563eb", alpha: 0.55, size: 1.2 },
+  { color: "#3b82f6", alpha: 0.7,  size: 1.5 },
+  { color: "#60a5fa", alpha: 0.85, size: 1.9 },
+  { color: "#bfdbfe", alpha: 1.0,  size: 2.3 },  // proche
+];
+const L = LAYERS.length;
+const px = new Float32Array(N), py = new Float32Array(N), pl = new Uint8Array(N);
+
+/* ================= TEXTES EN PARTICULES (même style) ================= */
+function makeText(text, OW, OH, targetW, step, spacing) {
+  const off = document.createElement("canvas");
+  off.width = OW; off.height = OH;
+  const o = off.getContext("2d");
+  o.fillStyle = "#fff";
+  o.textAlign = "center";
+  o.textBaseline = "middle";
+  if ("letterSpacing" in o) o.letterSpacing = spacing + "px";
+  o.font = "900 100px Arial, Helvetica, sans-serif";
+  const size = 100 * targetW / o.measureText(text).width;       // ajuste la police à la largeur voulue
+  o.font = `900 ${size}px Arial, Helvetica, sans-serif`;
+  o.fillText(text, OW / 2, OH / 2);
+  const data = o.getImageData(0, 0, OW, OH).data;
+  const nx = [], ny = [];
+  for (let y = 0; y < OH; y += step)
+    for (let x = 0; x < OW; x += step)
+      if (data[(y * OW + x) * 4 + 3] > 128) {
+        nx.push((x - OW / 2) / targetW);
+        ny.push((y - OH / 2) / targetW);
+      }
+  const n = nx.length;
+  const T = { n, nx: Float32Array.from(nx), ny: Float32Array.from(ny),
+              ph: new Float32Array(n), rn: new Float32Array(n) };
+  for (let i = 0; i < n; i++) { T.ph[i] = Math.random() * Math.PI * 2; T.rn[i] = Math.random(); }
+  return T;
+}
+
+const ILY  = makeText("I LOVE YOU", 900, 180, 800, 4, 8);
+const NAME = makeText("AICHA ASTOU DIENG", 1300, 200, 1200, 6, 6);
+
+function drawText(T, textW, yc, r, alpha, now, burst) {
+  ctx.globalAlpha = alpha;
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.fillStyle = pass ? "#93c5fd" : "#dbeafe";
+    ctx.beginPath();
+    for (let i = pass; i < T.n; i += 2) {
+      const k = 1 + burst * (0.6 + T.rn[i]);
+      const wave = Math.sin(now * 0.003 + T.nx[i] * 9) * 2.5
+                 + Math.sin(now * 0.005 + T.ph[i]) * 0.8;
+      const x = W / 2 + T.nx[i] * textW * k;
+      const y = yc + T.ny[i] * textW * k + wave;
+      ctx.moveTo(x + r, y);
+      ctx.arc(x, y, r, 0, 6.2832);
+    }
+    ctx.fill();
+  }
+}
+
+/* ================= INTERACTION ================= */
+let angle = 0, tiltX = 0, tiltTarget = 0, spin = 0.008, burst = 0;
+
+addEventListener("pointermove", e => {
+  tiltTarget = ((e.clientY / H) - 0.5) * 0.9;
+  spin = 0.008 + ((e.clientX / W) - 0.5) * 0.03;
+});
+addEventListener("pointerdown", () => { burst = 1.4; });
+
+/* ================= BOUCLE ================= */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 16.667, 3);
+  last = now;
+
+  angle += spin * dt;
+  tiltX += (tiltTarget - tiltX) * 0.05 * dt;
+  burst *= Math.pow(0.94, dt);
+
+  const baseScale = Math.min(W / 40, H / 56);                   // tient dans l'écran
+  const beat = 1 + 0.07 * Math.pow(Math.max(0, Math.sin(now * 0.005)), 6);
+  const scale = baseScale * beat;
+  const floatY = Math.sin(now * 0.0012) * baseScale * 0.8;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const cosT = Math.cos(tiltX), sinT = Math.sin(tiltX);
+  const FOV = 60;
+  const cx = W / 2;
+  const cy = H / 2 - 8.8 * baseScale;
+  const small = W < 600 ? 0.8 : 1;
+
+  /* ----- projection du cœur ----- */
+  for (let i = 0; i < N; i++) {
+    const w = Math.sin(now * 0.002 + ph[i]) * 0.35;
+    const k = 1 + burst * (0.4 + rnd[i]);
+    const x = (bx[i] + w) * k, y = (by[i] + w) * k, z = (bz[i] + w) * k;
+
+    const x1 = x * cosA + z * sinA;
+    const z1 = -x * sinA + z * cosA;
+    const y2 = y * cosT - z1 * sinT;
+    const z2 = y * sinT + z1 * cosT;
+
+    const f = FOV / (FOV + z2);
+    px[i] = cx + x1 * scale * f;
+    py[i] = cy + y2 * scale * f + floatY;
+
+    let d = (z2 + 18) / 36;
+    d = d < 0 ? 0 : d > 0.999 ? 0.999 : d;
+    pl[i] = L - 1 - ((d * L) | 0);
+  }
+
+  /* ----- fond avec traînée ----- */
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "rgba(2,6,23,0.35)";
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter";
+
+  /* ----- cœur ----- */
+  for (let l = 0; l < L; l++) {
+    const { color, alpha, size } = LAYERS[l];
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    const r = size * small;
+    for (let i = 0; i < N; i++) {
+      if (pl[i] !== l) continue;
+      ctx.moveTo(px[i] + r, py[i]);
+      ctx.arc(px[i], py[i], r, 0, 6.2832);
+    }
+    ctx.fill();
+  }
+
+  /* ----- textes ----- */
+  const flicker = 0.65 + 0.35 * Math.sin(now * 0.004);
+  drawText(ILY,  Math.min(W * 0.85, baseScale * 34), cy + baseScale * 23 + floatY * 0.4,
+           1.4 * small, flicker, now, burst);
+  drawText(NAME, Math.min(W * 0.85, baseScale * 34), cy + baseScale * 30 + floatY * 0.3,
+           1.2 * small, flicker, now, burst);
+
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
